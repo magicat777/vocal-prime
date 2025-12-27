@@ -153,16 +153,22 @@ class MelodiaDetector:
 
     Best for: Multiple voices, extracting lead melody from harmony
     Based on: Salamon & Gómez (2012) "Melody Extraction from Polyphonic Music Signals"
+
+    Performance optimized with:
+    - Pre-allocated circular buffer (avoids np.concatenate allocations)
+    - Configurable update rate via hop_size
+    - Optional equal loudness filter bypass
     """
 
     def __init__(
         self,
         sample_rate: int = 48000,
         frame_size: int = 2048,
-        hop_size: int = 128,
+        hop_size: int = 256,  # Increased from 128 for better performance (~5ms vs 2.7ms)
         min_freq: float = 55.0,    # A1 - covers bass vocals
         max_freq: float = 1800.0,  # Extended for soprano (up to ~A6)
-        voice_vibrato: bool = True
+        voice_vibrato: bool = True,
+        use_equal_loudness: bool = True  # Can disable for ~10% speedup
     ):
         self.sample_rate = sample_rate
         self.frame_size = frame_size
@@ -170,11 +176,15 @@ class MelodiaDetector:
         self.min_freq = min_freq
         self.max_freq = max_freq
         self.voice_vibrato = voice_vibrato
+        self.use_equal_loudness = use_equal_loudness
 
-        # Larger buffer for better continuity (reduces breaks)
-        # At 48kHz: 4096 samples = 85ms, giving ~12Hz update rate
-        self.buffer = np.zeros(0, dtype=np.float32)
-        self.min_samples = frame_size * 2  # ~85ms at 48kHz - larger window = fewer breaks
+        # Pre-allocated circular buffer (avoids repeated allocations)
+        # Buffer size: 2x frame_size for overlap processing
+        self.buffer_size = frame_size * 3  # Extra room to avoid overflow
+        self.buffer = np.zeros(self.buffer_size, dtype=np.float32)
+        self.buffer_pos = 0  # Write position
+        self.samples_available = 0  # How many samples are ready
+        self.min_samples = frame_size * 2  # ~85ms at 48kHz
 
         # Essentia algorithms (lazy loaded)
         self._melodia = None
@@ -230,20 +240,40 @@ class MelodiaDetector:
         if not self._loaded:
             return None
 
-        # Accumulate in buffer
-        self.buffer = np.concatenate([self.buffer, audio])
+        audio_len = len(audio)
 
-        if len(self.buffer) < self.min_samples:
+        # Check if we need to compact buffer to make room
+        if self.buffer_pos + self.samples_available + audio_len > self.buffer_size:
+            # Shift existing samples to beginning of buffer
+            if self.samples_available > 0:
+                self.buffer[:self.samples_available] = self.buffer[
+                    self.buffer_pos:self.buffer_pos + self.samples_available
+                ]
+            self.buffer_pos = 0
+
+        # Append new audio to buffer (no allocation)
+        write_start = self.buffer_pos + self.samples_available
+        self.buffer[write_start:write_start + audio_len] = audio
+        self.samples_available += audio_len
+
+        if self.samples_available < self.min_samples:
             return None
 
-        # Process the buffer
-        to_process = self.buffer.copy()
-        # Keep half frame overlap for continuity (faster updates)
-        self.buffer = self.buffer[-(self.frame_size // 2):]
+        # Extract contiguous audio for processing (single allocation, required by Essentia)
+        to_process = self.buffer[self.buffer_pos:self.buffer_pos + self.samples_available].copy()
+
+        # Keep half frame for overlap, discard the rest (no allocation)
+        keep_samples = self.frame_size // 2
+        discard_samples = self.samples_available - keep_samples
+        self.buffer_pos += discard_samples
+        self.samples_available = keep_samples
 
         try:
-            # Apply equal loudness filter
-            audio_eq = self._eqloud(to_process)
+            # Apply equal loudness filter (can bypass for ~10% speedup)
+            if self.use_equal_loudness:
+                audio_eq = self._eqloud(to_process)
+            else:
+                audio_eq = to_process
 
             # Run Melodia
             pitch, confidence = self._melodia(audio_eq)
@@ -279,7 +309,9 @@ class MelodiaDetector:
 
     def reset(self):
         """Reset buffer state."""
-        self.buffer = np.zeros(0, dtype=np.float32)
+        self.buffer[:] = 0  # Clear in-place, no allocation
+        self.buffer_pos = 0
+        self.samples_available = 0
 
 
 class HybridPitchDetector:

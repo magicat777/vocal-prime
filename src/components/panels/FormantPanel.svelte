@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { vocalEngine } from '../../core/VocalEngine';
+  import { vocalEngine, type FormantMode } from '../../core/VocalEngine';
 
   let canvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D | null = null;
@@ -10,9 +10,34 @@
 
   // Subscribe to formant data
   let formantData = { F1: 0, F2: 0, F3: 0, F4: 0, detected: false };
-  const unsubscribe = vocalEngine.formants.subscribe(data => {
+  const unsubscribeFormants = vocalEngine.formants.subscribe(data => {
     formantData = data;
   });
+
+  // Subscribe to engine state for formant mode
+  let formantMode: FormantMode = 'off';
+  let formantLatencyMs = 0;
+  const unsubscribeState = vocalEngine.state.subscribe(state => {
+    formantMode = state.formantMode;
+    formantLatencyMs = state.formantLatencyMs;
+  });
+
+  // Handle formant mode toggle
+  async function handleModeChange(event: Event) {
+    const select = event.target as HTMLSelectElement;
+    const newMode = select.value as FormantMode;
+
+    // Stop current streaming if active
+    if (formantMode === 'streaming') {
+      await vocalEngine.stopFormantStreaming();
+    }
+
+    // Start streaming if requested
+    if (newMode === 'streaming') {
+      await vocalEngine.startFormantStreaming();
+    }
+    // If 'off' is selected, streaming is already stopped, state will update via subscription
+  }
 
   // Vowel reference points (approximate F1/F2 for American English)
   const vowelRefs: { [key: string]: [number, number] } = {
@@ -42,7 +67,8 @@
   onDestroy(() => {
     window.removeEventListener('resize', resizeCanvas);
     cancelAnimationFrame(animationId);
-    unsubscribe();
+    unsubscribeFormants();
+    unsubscribeState();
   });
 
   function resizeCanvas() {
@@ -191,6 +217,16 @@
   <div class="panel-header">
     <span class="panel-title">FORMANTS</span>
     <span class="panel-subtitle">F1-F4 Vowel Space</span>
+    <div class="header-spacer"></div>
+    <div class="mode-selector">
+      <select value={formantMode} on:change={handleModeChange}>
+        <option value="off">Local (FFT)</option>
+        <option value="streaming">Parselmouth (LPC)</option>
+      </select>
+      {#if formantMode === 'streaming'}
+        <span class="algorithm-badge">LPC</span>
+      {/if}
+    </div>
   </div>
   <div class="canvas-container">
     <canvas bind:this={canvas}></canvas>
@@ -230,6 +266,48 @@
     font-family: var(--font-mono);
     font-size: 0.625rem;
     color: var(--text-secondary);
+  }
+
+  .header-spacer {
+    flex: 1;
+  }
+
+  .mode-selector {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .mode-selector select {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    cursor: pointer;
+    outline: none;
+  }
+
+  .mode-selector select:hover {
+    border-color: var(--accent-color);
+  }
+
+  .mode-selector select:focus {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 1px var(--accent-color);
+  }
+
+  .algorithm-badge {
+    font-family: var(--font-mono);
+    font-size: 0.5rem;
+    padding: 0.125rem 0.375rem;
+    background: #a78bfa33;
+    color: #a78bfa;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 
   .canvas-container {

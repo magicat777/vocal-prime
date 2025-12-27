@@ -60,6 +60,9 @@ const IPC = {
   FORMANT_ANALYZE: 'formant:analyze',
   FORMANT_RESULT: 'formant:result',
   FORMANT_STREAM: 'formant:stream',
+  FORMANT_DATA: 'formant:data',
+  FORMANT_START: 'formant:start',
+  FORMANT_STOP: 'formant:stop',
 
   // Voice quality
   QUALITY_ANALYZE: 'quality:analyze',
@@ -68,6 +71,9 @@ const IPC = {
   // Vibrato analysis
   VIBRATO_ANALYZE: 'vibrato:analyze',
   VIBRATO_RESULT: 'vibrato:result',
+
+  // Analysis mode control
+  ANALYSIS_USE_SEPARATED: 'analysis:use_separated',
 
   // Python process management
   PYTHON_STATUS: 'python:status',
@@ -252,6 +258,10 @@ let pitchStreamingActive = false;
 let pitchStreamTaskId = '';
 let pitchMode: 'auto' | 'crepe' | 'melodia' = 'auto';
 
+// Streaming formant detection state
+let formantStreamingActive = false;
+let formantStreamTaskId = '';
+
 function handlePythonMessage(message: {
   type: string;
   id?: string;
@@ -295,6 +305,18 @@ function handlePythonMessage(message: {
       break;
     case 'formant:stream':
       mainWindow?.webContents.send(IPC.FORMANT_STREAM, message.payload);
+      break;
+    case 'formant:data':
+      // Real-time formant data from streaming detector
+      mainWindow?.webContents.send(IPC.FORMANT_DATA, message.payload);
+      // Log formant data occasionally
+      if (Math.random() < 0.02) {
+        const p = message.payload as { F1?: number; F2?: number; detected?: boolean };
+        console.log(`[Formant←Python] F1=${p?.F1?.toFixed(0) || 0}Hz F2=${p?.F2?.toFixed(0) || 0}Hz detected=${p?.detected || false}`);
+      }
+      break;
+    case 'formant:start:result':
+      console.log('Formant streaming started:', message.payload);
       break;
     case 'quality:result':
       mainWindow?.webContents.send(IPC.QUALITY_RESULT, message.payload);
@@ -410,6 +432,15 @@ function startAudioCapture(deviceId: string): boolean {
         payload: { audio: audioB64 }
       });
     }
+
+    // If formant streaming is active, send to Python formant detector
+    if (formantStreamingActive && pythonProcess?.stdin) {
+      sendToPython({
+        type: 'formant:stream',
+        id: formantStreamTaskId,
+        payload: { audio: audioB64 }
+      });
+    }
   });
 
   audioProcess.stderr?.on('data', (data: Buffer) => {
@@ -497,6 +528,36 @@ function setPitchMode(mode: 'auto' | 'crepe' | 'melodia'): void {
     });
   }
   console.log(`Pitch mode set to: ${mode}`);
+}
+
+// ============================================================================
+// Streaming Formant Detection
+// ============================================================================
+function startFormantStreaming(): { taskId: string } {
+  formantStreamTaskId = crypto.randomUUID();
+  formantStreamingActive = true;
+
+  sendToPython({
+    type: 'formant:start',
+    id: formantStreamTaskId,
+    payload: {}
+  });
+
+  console.log('Started formant streaming');
+  return { taskId: formantStreamTaskId };
+}
+
+function stopFormantStreaming(): void {
+  if (formantStreamingActive) {
+    sendToPython({
+      type: 'formant:stop',
+      id: formantStreamTaskId,
+      payload: {}
+    });
+    formantStreamingActive = false;
+    formantStreamTaskId = '';
+    console.log('Stopped formant streaming');
+  }
 }
 
 function stopAudioCapture(): void {
@@ -640,11 +701,21 @@ function registerIpcHandlers(): void {
     return true;
   });
 
-  // Formant handlers
+  // Formant handlers (file-based)
   ipcMain.handle(IPC.FORMANT_ANALYZE, async (_, request: object) => {
     const taskId = crypto.randomUUID();
     sendToPython({ type: 'formant:analyze', id: taskId, payload: request });
     return { taskId };
+  });
+
+  // Formant streaming handlers
+  ipcMain.handle(IPC.FORMANT_START, async () => {
+    return startFormantStreaming();
+  });
+
+  ipcMain.handle(IPC.FORMANT_STOP, async () => {
+    stopFormantStreaming();
+    return true;
   });
 
   // Quality handlers
@@ -659,6 +730,14 @@ function registerIpcHandlers(): void {
     const taskId = crypto.randomUUID();
     sendToPython({ type: 'vibrato:analyze', id: taskId, payload: request });
     return { taskId };
+  });
+
+  // Analysis mode control
+  ipcMain.handle(IPC.ANALYSIS_USE_SEPARATED, async (_, enabled: boolean) => {
+    const taskId = crypto.randomUUID();
+    sendToPython({ type: 'analysis:use_separated', id: taskId, payload: { enabled } });
+    console.log(`Use separated vocals for analysis: ${enabled}`);
+    return { taskId, enabled };
   });
 
   // Python management

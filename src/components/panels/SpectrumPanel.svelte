@@ -53,9 +53,9 @@
     animationId = requestAnimationFrame(animate);
   }
 
-  function freqToX(freq: number): number {
+  function freqToX(freq: number, drawWidth?: number): number {
     const ratio = Math.log10(freq / minFreq) / Math.log10(maxFreq / minFreq);
-    return ratio * width;
+    return ratio * (drawWidth ?? width);
   }
 
   function handleGainChange(e: Event) {
@@ -64,34 +64,51 @@
     vocalEngine.setSpectrumGain(gain);
   }
 
+  // dB level labels for y-axis
+  const dbLevels = [0, -6, -12, -18, -24, -30];
+  const dbMin = -30; // Minimum dB level shown
+
   function draw() {
     if (!ctx) return;
 
     const bars = spectrumData.bars;
+    const marginLeft = 32; // Space for dB labels
     const marginBottom = 24;
+    const marginRight = 8;
+    const drawWidth = width - marginLeft - marginRight;
     const drawHeight = height - marginBottom;
 
     // Clear
     ctx.fillStyle = '#0a0a0f';
     ctx.fillRect(0, 0, width, height);
 
-    // Draw grid lines
-    ctx.strokeStyle = '#1a1a25';
-    ctx.lineWidth = 1;
+    // Draw horizontal grid lines with dB labels
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'right';
 
-    // Horizontal grid (dB levels)
-    for (let i = 0; i <= 4; i++) {
-      const y = (i / 4) * drawHeight;
+    dbLevels.forEach(db => {
+      // Convert dB to normalized position (0dB = top, -30dB = bottom)
+      // In audio: 0 dBFS is full scale (top), negative values are quieter (down)
+      const normalized = db / dbMin;  // 0 → 0 (top), -30 → 1 (bottom)
+      const y = normalized * drawHeight;
+
+      // Grid line
+      ctx.strokeStyle = db === 0 ? '#2a2a35' : '#1a1a25';
+      ctx.lineWidth = db === 0 ? 1 : 0.5;
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
+      ctx.moveTo(marginLeft, y);
+      ctx.lineTo(marginLeft + drawWidth, y);
       ctx.stroke();
-    }
+
+      // dB label
+      ctx.fillStyle = '#555';
+      ctx.fillText(`${db}`, marginLeft - 4, y + 3);
+    });
 
     // Vertical grid (frequency markers)
     ctx.strokeStyle = '#2a2a35';
     freqLabels.forEach(freq => {
-      const x = freqToX(freq);
+      const x = marginLeft + freqToX(freq, drawWidth);
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, drawHeight);
@@ -99,7 +116,7 @@
     });
 
     // Draw spectrum bars with gradient
-    const barWidth = width / bars.length;
+    const barWidth = drawWidth / bars.length;
     const gradient = ctx.createLinearGradient(0, drawHeight, 0, 0);
     gradient.addColorStop(0, '#22c55e');
     gradient.addColorStop(0.5, '#eab308');
@@ -108,7 +125,7 @@
 
     for (let i = 0; i < bars.length; i++) {
       const barHeight = bars[i] * drawHeight;
-      const x = i * barWidth;
+      const x = marginLeft + i * barWidth;
 
       ctx.fillStyle = gradient;
       ctx.fillRect(x, drawHeight - barHeight, barWidth - 1, barHeight);
@@ -119,7 +136,7 @@
     ctx.fillStyle = '#666';
     ctx.textAlign = 'center';
     freqLabels.forEach(freq => {
-      const x = freqToX(freq);
+      const x = marginLeft + freqToX(freq, drawWidth);
       const label = freq >= 1000 ? `${freq / 1000}k` : freq.toString();
       ctx.fillText(label, x, height - 6);
     });

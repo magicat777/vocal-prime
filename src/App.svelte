@@ -22,6 +22,9 @@
   let analysisProgress = 0;
   let analysisStage = '';
 
+  // Use separated vocals for pitch/formant
+  let useSeparatedVocals = false;
+
   onMount(async () => {
     // Initialize VocalEngine
     vocalEngine.init();
@@ -68,6 +71,19 @@
     await window.electronAPI.python.restart();
     pythonStatus = await window.electronAPI.python.getStatus();
   }
+
+  async function toggleSeparatedVocals() {
+    useSeparatedVocals = !useSeparatedVocals;
+    await window.electronAPI.analysis.useSeparatedVocals(useSeparatedVocals);
+
+    if (useSeparatedVocals && isCapturing) {
+      // Start Demucs streaming when enabled
+      await window.electronAPI.stream.start('full');
+    } else if (!useSeparatedVocals) {
+      // Stop Demucs streaming when disabled to free GPU
+      await window.electronAPI.stream.stop();
+    }
+  }
 </script>
 
 <div class="app">
@@ -106,6 +122,14 @@
     </div>
 
     <div class="header-right">
+      <button
+        class="toggle-btn"
+        class:active={useSeparatedVocals}
+        on:click={toggleSeparatedVocals}
+        title="Use Demucs-separated vocals for pitch/formant analysis (better accuracy, +2s latency)"
+      >
+        {useSeparatedVocals ? 'SEP: ON' : 'SEP: OFF'}
+      </button>
       <div class="python-status" class:running={pythonStatus.running}>
         <span class="status-dot"></span>
         <span class="status-text">Python {pythonStatus.running ? 'Ready' : 'Offline'}</span>
@@ -373,6 +397,32 @@
   }
 
   .analysis-progress {
+    color: var(--accent-primary);
+  }
+
+  .toggle-btn {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    border-radius: var(--border-radius);
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    transition: all 0.15s ease;
+    cursor: pointer;
+  }
+
+  .toggle-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+  }
+
+  .toggle-btn.active {
+    background: rgba(74, 158, 255, 0.15);
+    border-color: var(--accent-primary);
     color: var(--accent-primary);
   }
 </style>

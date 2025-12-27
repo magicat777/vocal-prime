@@ -40,6 +40,23 @@ type StreamingPitchData = {
   latencyMs: number;
 };
 
+// Streaming formant data from Python
+type StreamingFormantData = {
+  taskId: string;
+  F1: number;
+  F2: number;
+  F3: number;
+  F4: number;
+  B1: number;
+  B2: number;
+  B3: number;
+  B4: number;
+  detected: boolean;
+  latencyMs: number;
+};
+
+export type FormantMode = 'off' | 'streaming';
+
 export interface VocalState {
   sourceType: SourceType;
   analysisState: AnalysisState;
@@ -51,6 +68,8 @@ export interface VocalState {
   streamLatencyMs: number;
   pitchMode: PitchMode;
   pitchAlgorithm: string;  // Currently active algorithm
+  formantMode: FormantMode;
+  formantLatencyMs: number;
 }
 
 export interface SpectrumData {
@@ -198,11 +217,14 @@ class VocalEngineClass {
   private pitchMode: PitchMode = 'off';
   private pitchStreamingActive: boolean = false;
 
+  // Streaming formant detection state (Python backend)
+  private formantMode: FormantMode = 'off';
+  private formantStreamingActive: boolean = false;
+
   // Pitch update rate tracking (for accurate vibrato frequency calculation)
   private pitchUpdateCount: number = 0;
   private pitchUpdateStartTime: number = 0;
   private measuredPitchRate: number = PITCH_ANALYSIS_RATE;  // Default to expected rate
-  private newPitchDataAvailable: boolean = false;  // Flag for vibrato calculation
 
   // IPC cleanup functions
   private cleanupFunctions: (() => void)[] = [];
@@ -227,6 +249,8 @@ class VocalEngineClass {
       streamLatencyMs: 0,
       pitchMode: 'off',
       pitchAlgorithm: 'local',
+      formantMode: 'off',
+      formantLatencyMs: 0,
     });
 
     // Initialize data stores with defaults
@@ -347,6 +371,12 @@ class VocalEngineClass {
       this.processPythonPitchData(data as StreamingPitchData);
     });
     this.cleanupFunctions.push(unsubPitch);
+
+    // Register streaming formant data listener (Python Parselmouth formant detection)
+    const unsubFormant = window.electronAPI.formant.onData((data) => {
+      this.processPythonFormantData(data as StreamingFormantData);
+    });
+    this.cleanupFunctions.push(unsubFormant);
   }
 
   /**
@@ -462,6 +492,78 @@ class VocalEngineClass {
     }
   }
 
+  // ===========================================================================
+  // Streaming Formant Detection (Python Parselmouth backend)
+  // ===========================================================================
+
+  /**
+   * Start Parselmouth-based formant detection streaming
+   * Uses LPC (Burg algorithm) for accurate vocal tract resonance estimation
+   */
+  async startFormantStreaming(): Promise<boolean> {
+    try {
+      const result = await window.electronAPI.formant.startStreaming();
+      this.formantMode = 'streaming';
+      this.formantStreamingActive = true;
+
+      this.state.update(s => ({
+        ...s,
+        formantMode: 'streaming',
+        formantLatencyMs: 35, // ~25ms window + 10ms hop
+      }));
+
+      console.log(`Formant streaming started, task: ${result.taskId}`);
+      return true;
+    } catch (err) {
+      console.error('Failed to start formant streaming:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Stop formant detection streaming
+   */
+  async stopFormantStreaming(): Promise<void> {
+    if (this.formantMode === 'off') return;
+
+    try {
+      await window.electronAPI.formant.stopStreaming();
+    } catch (err) {
+      console.error('Failed to stop formant streaming:', err);
+    }
+
+    this.formantMode = 'off';
+    this.formantStreamingActive = false;
+
+    this.state.update(s => ({
+      ...s,
+      formantMode: 'off',
+      formantLatencyMs: 0,
+    }));
+  }
+
+  /**
+   * Process formant data from Python Parselmouth backend
+   */
+  private processPythonFormantData(data: StreamingFormantData): void {
+    if (!this.formantStreamingActive) return;
+
+    // Update formant store with Python data
+    this.formants.set({
+      F1: data.F1,
+      F2: data.F2,
+      F3: data.F3,
+      F4: data.F4,
+      detected: data.detected,
+    });
+
+    // Update state with latency info
+    this.state.update(s => ({
+      ...s,
+      formantLatencyMs: data.latencyMs,
+    }));
+  }
+
   /**
    * Process pitch data from Python backend
    */
@@ -494,7 +596,6 @@ class VocalEngineClass {
     const frequency = data.voiced ? data.frequency : 0;
     this.pitchHistory[this.pitchHistoryPos] = frequency;
     this.pitchHistoryPos = (this.pitchHistoryPos + 1) % PITCH_HISTORY_SIZE;
-    this.newPitchDataAvailable = true;  // Signal that new data is available for vibrato
 
     // Create ordered history for display
     const history = new Float32Array(PITCH_HISTORY_SIZE);
@@ -800,8 +901,11 @@ class VocalEngineClass {
       period = localVoiced ? localPeriod : (frequency > 0 ? SAMPLE_RATE / frequency : 0);
     }
 
-    // Estimate formants from spectrum
-    this.estimateFormants();
+    // Estimate formants from spectrum (only if Python streaming is OFF)
+    // When streaming is active, formants are updated by processPythonFormantData
+    if (!this.formantStreamingActive) {
+      this.estimateFormants();
+    }
 
     // Calculate musical vocal metrics
     // These are always calculated, voice detection determines voicePresent flag

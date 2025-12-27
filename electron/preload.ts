@@ -113,6 +113,20 @@ export interface FormantFrame {
   F4: number;
 }
 
+export interface StreamingFormantData {
+  taskId: string;
+  F1: number;
+  F2: number;
+  F3: number;
+  F4: number;
+  B1: number;  // Bandwidth
+  B2: number;
+  B3: number;
+  B4: number;
+  detected: boolean;
+  latencyMs: number;
+}
+
 export interface QualityRequest {
   source: string;
   buffer?: number[];
@@ -219,6 +233,10 @@ export interface ElectronAPI {
     analyze: (request: FormantRequest) => Promise<{ taskId: string }>;
     onResult: (callback: (result: FormantResult) => void) => () => void;
     onStream: (callback: (data: FormantFrame) => void) => () => void;
+    // Streaming formant detection (Parselmouth-based)
+    startStreaming: () => Promise<{ taskId: string }>;
+    stopStreaming: () => Promise<boolean>;
+    onData: (callback: (data: StreamingFormantData) => void) => () => void;
   };
 
   // Voice quality
@@ -231,6 +249,11 @@ export interface ElectronAPI {
   vibrato: {
     analyze: (request: VibratoRequest) => Promise<{ taskId: string }>;
     onResult: (callback: (result: VibratoResult) => void) => () => void;
+  };
+
+  // Analysis mode control
+  analysis: {
+    useSeparatedVocals: (enabled: boolean) => Promise<{ taskId: string; enabled: boolean }>;
   };
 
   // Python process status
@@ -346,6 +369,15 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on('formant:stream', listener);
       return () => ipcRenderer.removeListener('formant:stream', listener);
     },
+    // Streaming formant detection (Parselmouth-based)
+    startStreaming: () => ipcRenderer.invoke('formant:start'),
+    stopStreaming: () => ipcRenderer.invoke('formant:stop'),
+    onData: (callback: (data: StreamingFormantData) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: StreamingFormantData) =>
+        callback(data);
+      ipcRenderer.on('formant:data', listener);
+      return () => ipcRenderer.removeListener('formant:data', listener);
+    },
   },
 
   // Voice quality
@@ -368,6 +400,11 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on('vibrato:result', listener);
       return () => ipcRenderer.removeListener('vibrato:result', listener);
     },
+  },
+
+  // Analysis mode control
+  analysis: {
+    useSeparatedVocals: (enabled: boolean) => ipcRenderer.invoke('analysis:use_separated', enabled),
   },
 
   // Python process status

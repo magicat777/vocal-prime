@@ -40,6 +40,21 @@ interface StreamingPitchData {
 // Pitch detection mode
 type PitchMode = 'auto' | 'crepe' | 'melodia';
 
+// Streaming formant data from Python backend
+interface StreamingFormantData {
+  taskId: string;
+  F1: number;
+  F2: number;
+  F3: number;
+  F4: number;
+  B1: number;
+  B2: number;
+  B3: number;
+  B4: number;
+  detected: boolean;
+  latencyMs: number;
+}
+
 // ElectronAPI interface matching preload.ts
 interface ElectronAPI {
   audio: {
@@ -78,6 +93,10 @@ interface ElectronAPI {
     analyze: (request: { audioPath: string }) => Promise<{ taskId: string }>;
     onResult: (callback: (result: unknown) => void) => () => void;
     onStream: (callback: (data: unknown) => void) => () => void;
+    // Streaming formant detection (Parselmouth-based)
+    startStreaming: () => Promise<{ taskId: string }>;
+    stopStreaming: () => Promise<boolean>;
+    onData: (callback: (data: StreamingFormantData) => void) => () => void;
   };
   quality: {
     analyze: (request: { audioPath: string }) => Promise<{ taskId: string }>;
@@ -86,6 +105,9 @@ interface ElectronAPI {
   vibrato: {
     analyze: (request: { audioPath: string }) => Promise<{ taskId: string }>;
     onResult: (callback: (result: unknown) => void) => () => void;
+  };
+  analysis: {
+    useSeparatedVocals: (enabled: boolean) => Promise<{ taskId: string; enabled: boolean }>;
   };
   python: {
     getStatus: () => Promise<{ running: boolean }>;
