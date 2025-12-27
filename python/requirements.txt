@@ -7,7 +7,10 @@ demucs>=4.0.0
 crepe>=0.0.16
 torchcrepe>=0.0.23
 
-# Formant Analysis / Voice Quality
+# Polyphonic Melody Extraction
+essentia>=2.1b6
+
+# Formant Analysis
 parselmouth>=0.4.0
 
 # Audio Processing

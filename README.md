@@ -1,14 +1,18 @@
 # VOCAL_PRIME
 
-Professional voice analysis application for audio mastering workflows.
+Professional musical vocal analysis for audio mastering workflows.
 
 ## Features
 
 - **Source Separation**: Extract vocals from stereo mix using Demucs v4
-- **Pitch Detection**: Neural network pitch tracking with CREPE
-- **Formant Analysis**: F1-F4 trajectories via Parselmouth/Praat
-- **Voice Quality Metrics**: Jitter, shimmer, harmonics-to-noise ratio
-- **Vibrato Analysis**: Rate, extent, and regularity
+- **Pitch Detection**: Real-time pitch tracking with autocorrelation
+- **Formant Analysis**: F1-F4 trajectories for vowel/timbre analysis
+- **Musical Vocal Metrics**:
+  - **Presence**: Vocal cut-through (1-5kHz energy ratio)
+  - **Vibrato**: Rate (Hz) and extent (semitones) detection
+  - **Dynamics**: Expressive loudness variation
+  - **Clarity**: Harmonic quality (0-100%)
+  - **Intensity**: Overall vocal power
 
 ## Operating Modes
 

@@ -74,6 +74,17 @@ export interface PitchFrame {
   voiced: boolean;
 }
 
+export interface StreamingPitchData {
+  taskId: string;
+  frequency: number;
+  confidence: number;
+  voiced: boolean;
+  algorithm: 'torchcrepe' | 'melodia' | 'unknown';
+  latencyMs: number;
+}
+
+export type PitchMode = 'auto' | 'crepe' | 'melodia';
+
 export interface FormantRequest {
   source: string;
   buffer?: number[];
@@ -150,6 +161,13 @@ export interface LayoutLoadResult {
   data: unknown;
 }
 
+export interface StreamVocalsData {
+  taskId: string;
+  vocals: string;  // base64 encoded float32 samples
+  samples: number;
+  latencyMs: number;
+}
+
 // ============================================================================
 // Electron API Interface
 // ============================================================================
@@ -177,11 +195,23 @@ export interface ElectronAPI {
     onResult: (callback: (result: SeparationResult) => void) => () => void;
   };
 
+  // Real-time streaming separation
+  stream: {
+    start: (mode: 'full' | 'light') => Promise<{ taskId: string }>;
+    stop: () => Promise<boolean>;
+    onVocals: (callback: (data: StreamVocalsData) => void) => () => void;
+  };
+
   // Pitch detection
   pitch: {
     analyze: (request: PitchRequest) => Promise<{ taskId: string }>;
     onResult: (callback: (result: PitchResult) => void) => () => void;
     onStream: (callback: (data: PitchFrame) => void) => () => void;
+    // Streaming pitch detection (GPU-accelerated)
+    startStreaming: (mode: PitchMode) => Promise<{ taskId: string }>;
+    stopStreaming: () => Promise<boolean>;
+    setMode: (mode: PitchMode) => Promise<boolean>;
+    onData: (callback: (data: StreamingPitchData) => void) => () => void;
   };
 
   // Formant analysis
@@ -264,6 +294,18 @@ const electronAPI: ElectronAPI = {
     },
   },
 
+  // Real-time streaming separation
+  stream: {
+    start: (mode: 'full' | 'light') => ipcRenderer.invoke('stream:start', mode),
+    stop: () => ipcRenderer.invoke('stream:stop'),
+    onVocals: (callback: (data: StreamVocalsData) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: StreamVocalsData) =>
+        callback(data);
+      ipcRenderer.on('stream:vocals', listener);
+      return () => ipcRenderer.removeListener('stream:vocals', listener);
+    },
+  },
+
   // Pitch detection
   pitch: {
     analyze: (request: PitchRequest) => ipcRenderer.invoke('pitch:analyze', request),
@@ -277,6 +319,16 @@ const electronAPI: ElectronAPI = {
       const listener = (_event: Electron.IpcRendererEvent, data: PitchFrame) => callback(data);
       ipcRenderer.on('pitch:stream', listener);
       return () => ipcRenderer.removeListener('pitch:stream', listener);
+    },
+    // Streaming pitch detection (GPU-accelerated)
+    startStreaming: (mode: PitchMode) => ipcRenderer.invoke('pitch:start', mode),
+    stopStreaming: () => ipcRenderer.invoke('pitch:stop'),
+    setMode: (mode: PitchMode) => ipcRenderer.invoke('pitch:set_mode', mode),
+    onData: (callback: (data: StreamingPitchData) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: StreamingPitchData) =>
+        callback(data);
+      ipcRenderer.on('pitch:data', listener);
+      return () => ipcRenderer.removeListener('pitch:data', listener);
     },
   },
 

@@ -16,6 +16,12 @@ if (process.env.APPIMAGE || process.platform === 'linux') {
 }
 
 // ============================================================================
+// Pitch rate tracking for debugging
+// ============================================================================
+let pitchUpdateCount = 0;
+let pitchRateStartTime = 0;
+
+// ============================================================================
 // IPC Channel Registry (domain:action pattern)
 // ============================================================================
 const IPC = {
@@ -36,10 +42,19 @@ const IPC = {
   SEPARATION_RESULT: 'separation:result',
   SEPARATION_CANCEL: 'separation:cancel',
 
+  // Real-time streaming separation
+  STREAM_START: 'stream:start',
+  STREAM_STOP: 'stream:stop',
+  STREAM_VOCALS: 'stream:vocals',
+
   // Pitch detection
   PITCH_ANALYZE: 'pitch:analyze',
   PITCH_RESULT: 'pitch:result',
   PITCH_STREAM: 'pitch:stream',
+  PITCH_DATA: 'pitch:data',
+  PITCH_START: 'pitch:start',
+  PITCH_STOP: 'pitch:stop',
+  PITCH_SET_MODE: 'pitch:set_mode',
 
   // Formant analysis
   FORMANT_ANALYZE: 'formant:analyze',
@@ -187,15 +202,22 @@ function startPythonProcess(): void {
   });
 
   pythonProcess.stdout?.on('data', (data: Buffer) => {
-    const message = data.toString().trim();
-    console.log(`[Python] ${message}`);
+    const output = data.toString().trim();
 
-    // Parse JSON messages from Python
-    try {
-      const parsed = JSON.parse(message);
-      handlePythonMessage(parsed);
-    } catch {
-      // Not JSON, just log output
+    // Parse each line separately - Python can send multiple JSON messages
+    const lines = output.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      // Try to parse as JSON
+      try {
+        const parsed = JSON.parse(trimmed);
+        handlePythonMessage(parsed);
+      } catch {
+        // Not JSON, just log output
+        console.log(`[Python] ${trimmed}`);
+      }
     }
   });
 
@@ -221,6 +243,15 @@ function stopPythonProcess(): void {
   }
 }
 
+// Streaming state (source separation)
+let streamingActive = false;
+let streamTaskId = '';
+
+// Streaming pitch detection state
+let pitchStreamingActive = false;
+let pitchStreamTaskId = '';
+let pitchMode: 'auto' | 'crepe' | 'melodia' = 'auto';
+
 function handlePythonMessage(message: {
   type: string;
   id?: string;
@@ -233,11 +264,31 @@ function handlePythonMessage(message: {
     case 'separation:result':
       mainWindow?.webContents.send(IPC.SEPARATION_RESULT, message.payload);
       break;
+    case 'stream:vocals':
+      // Forward separated vocals to renderer
+      mainWindow?.webContents.send(IPC.STREAM_VOCALS, message.payload);
+      break;
+    case 'stream:start:result':
+      // Streaming started - update state
+      const startResult = message.payload as { status: string; estimatedLatencyMs: number };
+      console.log(`Streaming started, estimated latency: ${startResult.estimatedLatencyMs}ms`);
+      break;
     case 'pitch:result':
       mainWindow?.webContents.send(IPC.PITCH_RESULT, message.payload);
       break;
     case 'pitch:stream':
       mainWindow?.webContents.send(IPC.PITCH_STREAM, message.payload);
+      break;
+    case 'pitch:data':
+      // Real-time pitch data from streaming detector
+      mainWindow?.webContents.send(IPC.PITCH_DATA, message.payload);
+      // Log pitch data occasionally
+      if (Math.random() < 0.02) {
+        console.log(`[Pitch←Python] freq=${message.payload?.frequency?.toFixed(1) || 0}Hz voiced=${message.payload?.voiced || false}`);
+      }
+      break;
+    case 'pitch:start:result':
+      console.log('Pitch streaming started:', message.payload);
       break;
     case 'formant:result':
       mainWindow?.webContents.send(IPC.FORMANT_RESULT, message.payload);
@@ -250,6 +301,9 @@ function handlePythonMessage(message: {
       break;
     case 'vibrato:result':
       mainWindow?.webContents.send(IPC.VIBRATO_RESULT, message.payload);
+      break;
+    case 'error':
+      console.error('[Python Error]', message.payload);
       break;
   }
 }
@@ -323,6 +377,39 @@ function startAudioCapture(deviceId: string): boolean {
     // Convert buffer to Float32Array and send to renderer
     const samples = new Float32Array(data.buffer, data.byteOffset, data.byteLength / 4);
     mainWindow?.webContents.send(IPC.AUDIO_DATA, Array.from(samples));
+
+    // Encode audio as base64 for JSON transport (used by both streamers)
+    const audioB64 = Buffer.from(data).toString('base64');
+
+    // If source separation streaming is active, send to Python
+    if (streamingActive && pythonProcess?.stdin) {
+      sendToPython({
+        type: 'stream:audio',
+        id: streamTaskId,
+        payload: { audio: audioB64 }
+      });
+    }
+
+    // If pitch streaming is active, send to Python pitch detector
+    if (pitchStreamingActive && pythonProcess?.stdin) {
+      // Track audio chunks sent for debugging
+      pitchUpdateCount++;
+      const now = Date.now();
+      if (pitchRateStartTime === 0) {
+        pitchRateStartTime = now;
+      } else if (now - pitchRateStartTime >= 3000) {
+        const rate = pitchUpdateCount / ((now - pitchRateStartTime) / 1000);
+        console.log(`[Audio→Python] ${rate.toFixed(1)} chunks/s (${pitchUpdateCount} in ${((now - pitchRateStartTime) / 1000).toFixed(1)}s)`);
+        pitchUpdateCount = 0;
+        pitchRateStartTime = now;
+      }
+
+      sendToPython({
+        type: 'pitch:stream',
+        id: pitchStreamTaskId,
+        payload: { audio: audioB64 }
+      });
+    }
   });
 
   audioProcess.stderr?.on('data', (data: Buffer) => {
@@ -340,6 +427,76 @@ function startAudioCapture(deviceId: string): boolean {
   });
 
   return true;
+}
+
+function startStreaming(mode: 'full' | 'light' = 'full'): { taskId: string } {
+  streamTaskId = crypto.randomUUID();
+  streamingActive = true;
+
+  sendToPython({
+    type: 'stream:start',
+    id: streamTaskId,
+    payload: { mode }
+  });
+
+  console.log(`Started streaming separation in ${mode} mode`);
+  return { taskId: streamTaskId };
+}
+
+function stopStreaming(): void {
+  if (streamingActive) {
+    sendToPython({
+      type: 'stream:stop',
+      id: streamTaskId,
+      payload: {}
+    });
+    streamingActive = false;
+    streamTaskId = '';
+    console.log('Stopped streaming separation');
+  }
+}
+
+// ============================================================================
+// Streaming Pitch Detection
+// ============================================================================
+function startPitchStreaming(mode: 'auto' | 'crepe' | 'melodia' = 'auto'): { taskId: string } {
+  pitchStreamTaskId = crypto.randomUUID();
+  pitchStreamingActive = true;
+  pitchMode = mode;
+
+  sendToPython({
+    type: 'pitch:start',
+    id: pitchStreamTaskId,
+    payload: { mode }
+  });
+
+  console.log(`Started pitch streaming in ${mode} mode`);
+  return { taskId: pitchStreamTaskId };
+}
+
+function stopPitchStreaming(): void {
+  if (pitchStreamingActive) {
+    sendToPython({
+      type: 'pitch:stop',
+      id: pitchStreamTaskId,
+      payload: {}
+    });
+    pitchStreamingActive = false;
+    pitchStreamTaskId = '';
+    console.log('Stopped pitch streaming');
+  }
+}
+
+function setPitchMode(mode: 'auto' | 'crepe' | 'melodia'): void {
+  pitchMode = mode;
+  if (pitchStreamingActive) {
+    sendToPython({
+      type: 'pitch:set_mode',
+      id: pitchStreamTaskId,
+      payload: { mode }
+    });
+  }
+  console.log(`Pitch mode set to: ${mode}`);
 }
 
 function stopAudioCapture(): void {
@@ -451,11 +608,36 @@ function registerIpcHandlers(): void {
     return true;
   });
 
-  // Pitch handlers
+  // Streaming separation handlers
+  ipcMain.handle(IPC.STREAM_START, async (_, mode: 'full' | 'light') => {
+    return startStreaming(mode);
+  });
+
+  ipcMain.handle(IPC.STREAM_STOP, async () => {
+    stopStreaming();
+    return true;
+  });
+
+  // Pitch handlers (file-based)
   ipcMain.handle(IPC.PITCH_ANALYZE, async (_, request: object) => {
     const taskId = crypto.randomUUID();
     sendToPython({ type: 'pitch:analyze', id: taskId, payload: request });
     return { taskId };
+  });
+
+  // Pitch streaming handlers
+  ipcMain.handle(IPC.PITCH_START, async (_, mode: 'auto' | 'crepe' | 'melodia') => {
+    return startPitchStreaming(mode);
+  });
+
+  ipcMain.handle(IPC.PITCH_STOP, async () => {
+    stopPitchStreaming();
+    return true;
+  });
+
+  ipcMain.handle(IPC.PITCH_SET_MODE, async (_, mode: 'auto' | 'crepe' | 'melodia') => {
+    setPitchMode(mode);
+    return true;
   });
 
   // Formant handlers
@@ -522,7 +704,7 @@ app.whenReady().then(() => {
   createWindow();
 
   // Start Python process in the background
-  // startPythonProcess(); // Uncomment when Python backend is ready
+  startPythonProcess();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

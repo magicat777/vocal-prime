@@ -1,11 +1,14 @@
 """
 VOCAL_PRIME - Analysis Server Entry Point
+Supports both file-based and real-time streaming analysis.
 """
 
 import sys
 import json
 import asyncio
-from typing import Dict, Any
+import base64
+import numpy as np
+from typing import Dict, Any, Optional
 
 # Check CUDA availability
 try:
@@ -24,25 +27,46 @@ class AnalysisServer:
     """
     JSON-based IPC server for voice analysis.
     Reads requests from stdin, writes responses to stdout.
+    Supports both file analysis and real-time streaming.
     """
 
     def __init__(self):
         self.handlers: Dict[str, Any] = {
+            # File-based analysis
             'separation:start': self.handle_separation,
             'separation:cancel': self.handle_separation_cancel,
             'pitch:analyze': self.handle_pitch,
             'formant:analyze': self.handle_formant,
-            'quality:analyze': self.handle_quality,
             'vibrato:analyze': self.handle_vibrato,
+
+            # Real-time streaming (source separation)
+            'stream:start': self.handle_stream_start,
+            'stream:audio': self.handle_stream_audio,
+            'stream:stop': self.handle_stream_stop,
+
+            # Real-time streaming (pitch detection)
+            'pitch:start': self.handle_pitch_start,
+            'pitch:stream': self.handle_pitch_stream,
+            'pitch:stop': self.handle_pitch_stop,
+            'pitch:set_mode': self.handle_pitch_set_mode,
         }
 
         self.active_tasks: Dict[str, Any] = {}
 
         # Lazy-load analyzers
         self._separator = None
+        self._streaming_separator = None
         self._pitch_detector = None
+        self._streaming_pitch_detector = None
         self._formant_analyzer = None
-        self._quality_analyzer = None
+
+        # Streaming state
+        self._streaming_active = False
+        self._stream_mode = 'full'  # 'full' (Demucs) or 'light' (bandpass)
+
+        # Streaming pitch state
+        self._pitch_streaming_active = False
+        self._pitch_mode = 'auto'  # 'auto', 'crepe', 'melodia'
 
     @property
     def separator(self):
@@ -52,11 +76,41 @@ class AnalysisServer:
         return self._separator
 
     @property
+    def streaming_separator(self):
+        if self._streaming_separator is None:
+            from .separation.streaming_separator import StreamingSeparator, LightweightSeparator
+            if self._stream_mode == 'full' and CUDA_AVAILABLE:
+                print("Initializing Demucs streaming separator...", file=sys.stderr)
+                self._streaming_separator = StreamingSeparator(
+                    model_name="htdemucs",
+                    sample_rate=48000,
+                    chunk_duration=1.5,    # Reduced from 2.0 for lower latency
+                    overlap=0.5            # 50% overlap gives 0.75s hop
+                )
+            else:
+                print("Initializing lightweight separator...", file=sys.stderr)
+                self._streaming_separator = LightweightSeparator(
+                    sample_rate=48000
+                )
+        return self._streaming_separator
+
+    @property
     def pitch_detector(self):
         if self._pitch_detector is None:
             from .pitch import CREPEDetector
             self._pitch_detector = CREPEDetector()
         return self._pitch_detector
+
+    @property
+    def streaming_pitch_detector(self):
+        if self._streaming_pitch_detector is None:
+            from .pitch import HybridPitchDetector
+            print(f"Initializing streaming pitch detector in '{self._pitch_mode}' mode...", file=sys.stderr)
+            self._streaming_pitch_detector = HybridPitchDetector(
+                mode=self._pitch_mode,
+                sample_rate=48000
+            )
+        return self._streaming_pitch_detector
 
     @property
     def formant_analyzer(self):
@@ -65,16 +119,85 @@ class AnalysisServer:
             self._formant_analyzer = ParselmouthAnalyzer()
         return self._formant_analyzer
 
-    @property
-    def quality_analyzer(self):
-        if self._quality_analyzer is None:
-            from .quality import VoiceQualityAnalyzer
-            self._quality_analyzer = VoiceQualityAnalyzer()
-        return self._quality_analyzer
-
     def send_message(self, message: dict):
         """Send JSON message to stdout for Electron."""
         print(json.dumps(message), flush=True)
+
+    async def handle_stream_start(self, task_id: str, payload: dict) -> dict:
+        """Start real-time streaming mode."""
+        self._stream_mode = payload.get('mode', 'full')
+        self._streaming_active = True
+
+        # Reset separator if mode changed
+        self._streaming_separator = None
+
+        # Pre-initialize the separator
+        _ = self.streaming_separator
+
+        latency = self.streaming_separator.get_latency_ms() if hasattr(self.streaming_separator, 'get_latency_ms') else 50
+
+        print(f"Streaming started in {self._stream_mode} mode", file=sys.stderr)
+
+        return {
+            'taskId': task_id,
+            'status': 'started',
+            'mode': self._stream_mode,
+            'estimatedLatencyMs': latency
+        }
+
+    async def handle_stream_audio(self, task_id: str, payload: dict) -> dict:
+        """Process streaming audio chunk."""
+        if not self._streaming_active:
+            return {'taskId': task_id, 'error': 'Streaming not active'}
+
+        # Decode audio data (base64 encoded float32 samples)
+        audio_b64 = payload.get('audio', '')
+        if not audio_b64:
+            return {'taskId': task_id, 'error': 'No audio data'}
+
+        try:
+            audio_bytes = base64.b64decode(audio_b64)
+            audio = np.frombuffer(audio_bytes, dtype=np.float32)
+
+            # Process through separator
+            vocals = self.streaming_separator.process_chunk(audio)
+
+            if vocals is not None:
+                # Encode output
+                vocals_b64 = base64.b64encode(vocals.astype(np.float32).tobytes()).decode('ascii')
+
+                latency = self.streaming_separator.get_latency_ms() if hasattr(self.streaming_separator, 'get_latency_ms') else 0
+
+                # Send separated vocals back
+                self.send_message({
+                    'type': 'stream:vocals',
+                    'payload': {
+                        'taskId': task_id,
+                        'vocals': vocals_b64,
+                        'samples': len(vocals),
+                        'latencyMs': latency
+                    }
+                })
+
+            return {'taskId': task_id, 'status': 'processed', 'buffered': vocals is None}
+
+        except Exception as e:
+            print(f"Stream processing error: {e}", file=sys.stderr)
+            return {'taskId': task_id, 'error': str(e)}
+
+    async def handle_stream_stop(self, task_id: str, payload: dict) -> dict:
+        """Stop streaming mode."""
+        self._streaming_active = False
+
+        if self._streaming_separator and hasattr(self._streaming_separator, 'reset'):
+            self._streaming_separator.reset()
+
+        print("Streaming stopped", file=sys.stderr)
+
+        return {
+            'taskId': task_id,
+            'status': 'stopped'
+        }
 
     async def handle_separation(self, task_id: str, payload: dict) -> dict:
         """Handle source separation request."""
@@ -151,17 +274,6 @@ class AnalysisServer:
             **result
         }
 
-    async def handle_quality(self, task_id: str, payload: dict) -> dict:
-        """Handle voice quality analysis request."""
-        source = payload.get('source', '')
-
-        result = await self.quality_analyzer.analyze(audio_path=source)
-
-        return {
-            'taskId': task_id,
-            **result
-        }
-
     async def handle_vibrato(self, task_id: str, payload: dict) -> dict:
         """Handle vibrato analysis request."""
         pitch_contour = payload.get('pitchContour', [])
@@ -174,6 +286,121 @@ class AnalysisServer:
             'extent': 0,
             'regularity': 0,
             'detected': False
+        }
+
+    # =========================================================================
+    # Streaming Pitch Detection Handlers
+    # =========================================================================
+
+    async def handle_pitch_start(self, task_id: str, payload: dict) -> dict:
+        """Start real-time streaming pitch detection."""
+        mode = payload.get('mode', 'auto')  # 'auto', 'crepe', 'melodia'
+        self._pitch_mode = mode
+        self._pitch_streaming_active = True
+
+        # Reset detector if mode changed
+        self._streaming_pitch_detector = None
+
+        # Pre-initialize the detector
+        _ = self.streaming_pitch_detector
+
+        latency = self.streaming_pitch_detector.get_latency_ms()
+
+        print(f"Streaming pitch detection started in '{mode}' mode", file=sys.stderr)
+
+        return {
+            'taskId': task_id,
+            'status': 'started',
+            'mode': mode,
+            'estimatedLatencyMs': latency
+        }
+
+    async def handle_pitch_stream(self, task_id: str, payload: dict) -> dict:
+        """Process streaming audio chunk for pitch detection."""
+        if not self._pitch_streaming_active:
+            return {'taskId': task_id, 'error': 'Pitch streaming not active'}
+
+        # Decode audio data (base64 encoded float32 samples)
+        audio_b64 = payload.get('audio', '')
+        if not audio_b64:
+            return {'taskId': task_id, 'error': 'No audio data'}
+
+        try:
+            audio_bytes = base64.b64decode(audio_b64)
+            audio = np.frombuffer(audio_bytes, dtype=np.float32)
+
+            # Convert stereo to mono if needed
+            if len(audio) % 2 == 0:
+                # Assume interleaved stereo
+                n_samples = len(audio) // 2
+                stereo = audio.reshape(n_samples, 2)
+                mono = stereo.mean(axis=1).astype(np.float32)
+            else:
+                mono = audio
+
+            # Process through pitch detector
+            result = self.streaming_pitch_detector.process_chunk(mono)
+
+            if result is not None:
+                latency = self.streaming_pitch_detector.get_latency_ms()
+
+                # Debug: log pitch updates occasionally
+                import random
+                if random.random() < 0.05:
+                    print(f"[Pitch] freq={result['frequency']:.1f}Hz conf={result['confidence']:.2f} voiced={result['voiced']}", file=sys.stderr)
+
+                # Send pitch data back
+                self.send_message({
+                    'type': 'pitch:data',
+                    'payload': {
+                        'taskId': task_id,
+                        'frequency': result['frequency'],
+                        'confidence': result['confidence'],
+                        'voiced': result['voiced'],
+                        'algorithm': result.get('algorithm', 'unknown'),
+                        'latencyMs': latency
+                    }
+                })
+
+            return {'taskId': task_id, 'status': 'processed', 'buffered': result is None}
+
+        except Exception as e:
+            import traceback
+            print(f"Pitch stream error: {traceback.format_exc()}", file=sys.stderr)
+            return {'taskId': task_id, 'error': str(e)}
+
+    async def handle_pitch_stop(self, task_id: str, payload: dict) -> dict:
+        """Stop streaming pitch detection."""
+        self._pitch_streaming_active = False
+
+        if self._streaming_pitch_detector:
+            self._streaming_pitch_detector.reset()
+
+        print("Streaming pitch detection stopped", file=sys.stderr)
+
+        return {
+            'taskId': task_id,
+            'status': 'stopped'
+        }
+
+    async def handle_pitch_set_mode(self, task_id: str, payload: dict) -> dict:
+        """Change pitch detection algorithm mode."""
+        mode = payload.get('mode', 'auto')
+
+        if mode not in ['auto', 'crepe', 'melodia']:
+            return {'taskId': task_id, 'error': f'Invalid mode: {mode}'}
+
+        self._pitch_mode = mode
+
+        if self._streaming_pitch_detector:
+            self._streaming_pitch_detector.set_mode(mode)
+
+        print(f"Pitch detection mode changed to: {mode}", file=sys.stderr)
+
+        return {
+            'taskId': task_id,
+            'status': 'mode_changed',
+            'mode': mode
         }
 
     async def process_message(self, message: dict):
@@ -189,13 +416,23 @@ class AnalysisServer:
                 self.active_tasks[task_id] = True
                 result = await handler(task_id, payload)
 
-                # Send result
-                result_type = msg_type.replace(':start', ':result').replace(':analyze', ':result')
-                self.send_message({
-                    'type': result_type,
-                    'payload': result
-                })
+                # Send result for non-streaming handlers
+                if not msg_type.startswith('stream:'):
+                    result_type = msg_type.replace(':start', ':result').replace(':analyze', ':result')
+                    self.send_message({
+                        'type': result_type,
+                        'payload': result
+                    })
+                else:
+                    # For streaming, send stream-specific result
+                    self.send_message({
+                        'type': f'{msg_type}:result',
+                        'payload': result
+                    })
+
             except Exception as e:
+                import traceback
+                print(f"Handler error: {traceback.format_exc()}", file=sys.stderr)
                 self.send_message({
                     'type': 'error',
                     'payload': {
@@ -236,7 +473,8 @@ class AnalysisServer:
             except json.JSONDecodeError as e:
                 print(f"Invalid JSON: {e}", file=sys.stderr)
             except Exception as e:
-                print(f"Error processing message: {e}", file=sys.stderr)
+                import traceback
+                print(f"Error processing message: {traceback.format_exc()}", file=sys.stderr)
 
 
 async def main():

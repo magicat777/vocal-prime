@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { vocalEngine } from './core/VocalEngine';
+
+  // Panel components
+  import WaveformPanel from './components/panels/WaveformPanel.svelte';
+  import SpectrumPanel from './components/panels/SpectrumPanel.svelte';
+  import PitchPanel from './components/panels/PitchPanel.svelte';
+  import FormantPanel from './components/panels/FormantPanel.svelte';
+  import VocalMetricsPanel from './components/panels/VocalMetricsPanel.svelte';
 
   // Application state
   let mode: 'live' | 'file' = 'live';
@@ -15,6 +23,9 @@
   let analysisStage = '';
 
   onMount(async () => {
+    // Initialize VocalEngine
+    vocalEngine.init();
+
     // Check Python status
     pythonStatus = await window.electronAPI.python.getStatus();
 
@@ -27,16 +38,20 @@
     }
   });
 
+  onDestroy(() => {
+    vocalEngine.destroy();
+  });
+
   async function startCapture() {
     if (!selectedDevice) return;
-    const success = await window.electronAPI.audio.start(selectedDevice);
+    const success = await vocalEngine.startCapture(selectedDevice);
     if (success) {
       isCapturing = true;
     }
   }
 
   async function stopCapture() {
-    await window.electronAPI.audio.stop();
+    await vocalEngine.stopCapture();
     isCapturing = false;
   }
 
@@ -103,10 +118,25 @@
 
   <!-- Main Content -->
   <main class="main">
-    <div class="placeholder-panel">
-      <h2>Voice Analysis Panels</h2>
-      <p class="text-secondary">Waveform, Pitch Contour, Formants, Quality Metrics</p>
-      <p class="text-muted">Coming soon...</p>
+    <div class="panel-grid">
+      <!-- Top row: Waveform and Spectrum -->
+      <div class="panel-cell waveform">
+        <WaveformPanel />
+      </div>
+      <div class="panel-cell spectrum">
+        <SpectrumPanel />
+      </div>
+
+      <!-- Bottom row: Pitch, Formants, Quality -->
+      <div class="panel-cell pitch">
+        <PitchPanel />
+      </div>
+      <div class="panel-cell formants">
+        <FormantPanel />
+      </div>
+      <div class="panel-cell quality">
+        <VocalMetricsPanel />
+      </div>
     </div>
   </main>
 
@@ -284,28 +314,49 @@
   /* Main */
   .main {
     flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 1rem;
+    padding: 0.75rem;
     min-height: 0;
+    overflow: hidden;
   }
 
-  .placeholder-panel {
-    text-align: center;
-    padding: 3rem;
-    background: var(--bg-panel);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
+  .panel-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 0.75rem;
+    height: 100%;
   }
 
-  .placeholder-panel h2 {
-    font-size: 1.25rem;
-    margin-bottom: 0.5rem;
+  .panel-cell {
+    min-height: 0;
+    min-width: 0;
   }
 
-  .placeholder-panel p {
-    margin-bottom: 0.25rem;
+  /* Top row spans */
+  .panel-cell.waveform {
+    grid-column: 1 / 2;
+    grid-row: 1 / 2;
+  }
+
+  .panel-cell.spectrum {
+    grid-column: 2 / 4;
+    grid-row: 1 / 2;
+  }
+
+  /* Bottom row */
+  .panel-cell.pitch {
+    grid-column: 1 / 2;
+    grid-row: 2 / 3;
+  }
+
+  .panel-cell.formants {
+    grid-column: 2 / 3;
+    grid-row: 2 / 3;
+  }
+
+  .panel-cell.quality {
+    grid-column: 3 / 4;
+    grid-row: 2 / 3;
   }
 
   /* Status Bar */
