@@ -1,0 +1,129 @@
+{
+  "name": "vocal-prime",
+  "version": "0.1.0",
+  "description": "Professional voice analysis for audio mastering with source separation, pitch detection, and formant analysis",
+  "homepage": "https://github.com/magicat777/vocal-prime",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run python:check && tsc && vite build && electron-builder",
+    "preview": "vite preview",
+    "electron:dev": "vite build && electron .",
+    "electron:build": "electron-builder",
+    "lint": "eslint src electron",
+    "lint:fix": "eslint src electron --fix",
+    "lint:security": "eslint src electron --rule 'security/*: error'",
+    "format": "prettier --write \"src/**/*.{ts,svelte,css,json}\"",
+    "type-check": "tsc --noEmit",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "python:setup": "cd python && python3 -m venv venv && source venv/bin/activate && pip install -e .",
+    "python:check": "python3 -c 'import torch; print(f\"PyTorch: {torch.__version__}, CUDA: {torch.cuda.is_available()}\")'",
+    "python:server": "cd python && source venv/bin/activate && python -m vocal_prime",
+    "python:build": "cd python && pyinstaller pyinstaller/vocal_prime.spec"
+  },
+  "keywords": [
+    "voice",
+    "vocal",
+    "analysis",
+    "pitch",
+    "formant",
+    "demucs",
+    "source-separation",
+    "audio",
+    "mastering",
+    "electron",
+    "svelte"
+  ],
+  "author": {
+    "name": "Jason Holt",
+    "email": "jason-holt@users.noreply.github.com"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "fft.js": "^4.0.4",
+    "interactjs": "^1.10.27",
+    "zeromq": "^6.0.0-beta.20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.50.0",
+    "@typescript-eslint/parser": "^8.50.0",
+    "electron": "^35.7.5",
+    "electron-builder": "^25.0.0",
+    "eslint": "^9.39.2",
+    "eslint-plugin-no-secrets": "^2.2.1",
+    "eslint-plugin-security": "^3.0.1",
+    "eslint-plugin-svelte": "^2.46.1",
+    "globals": "^16.5.0",
+    "prettier": "^3.4.0",
+    "prettier-plugin-svelte": "^3.3.0",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "svelte-eslint-parser": "^1.4.1",
+    "tslib": "^2.8.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.50.0",
+    "vite": "^6.0.0",
+    "vite-plugin-electron": "^0.28.0",
+    "vite-plugin-electron-renderer": "^0.14.5",
+    "vitest": "^2.0.0"
+  },
+  "build": {
+    "appId": "com.vocalprime.app",
+    "productName": "VOCAL_PRIME",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "python/dist/vocal_prime",
+        "to": "python"
+      }
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "magicat777",
+      "repo": "vocal-prime"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
+      "icon": "assets/icon.png",
+      "category": "AudioVideo;Audio;Music",
+      "maintainer": "Jason Holt <jason-holt@users.noreply.github.com>",
+      "vendor": "Vocal Prime",
+      "synopsis": "Professional Voice Analysis for Mastering",
+      "description": "Voice analysis with source separation (Demucs), pitch detection (CREPE), formant tracking, and voice quality metrics.",
+      "desktop": {
+        "StartupWMClass": "vocal-prime"
+      }
+    },
+    "deb": {
+      "depends": [
+        "libpulse0",
+        "libasound2",
+        "pulseaudio-utils"
+      ]
+    },
+    "rpm": {
+      "depends": [
+        "pulseaudio-libs",
+        "alsa-lib",
+        "pulseaudio-utils"
+      ]
+    }
+  }
+}

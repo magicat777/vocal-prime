@@ -1,0 +1,31 @@
+# VOCAL_PRIME Python Dependencies
+
+# Source Separation
+demucs>=4.0.0
+
+# Pitch Detection
+crepe>=0.0.16
+torchcrepe>=0.0.23
+
+# Formant Analysis / Voice Quality
+parselmouth>=0.4.0
+
+# Audio Processing
+librosa>=0.10.0
+soundfile>=0.12.0
+numpy>=1.24.0
+scipy>=1.11.0
+
+# Deep Learning (CUDA required)
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# IPC
+pyzmq>=25.0.0
+
+# Utilities
+pydantic>=2.0.0
+
+# Development
+pytest>=7.0.0
+pytest-asyncio>=0.21.0

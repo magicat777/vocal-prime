@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+python/venv/
+python/__pycache__/
+python/**/__pycache__/
+python/*.egg-info/
+
+# Build outputs
+dist/
+dist-electron/
+release/
+python/dist/
+python/build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+
+# PyInstaller
+*.spec.bak
+
+# Model cache (large files)
+python/models/
+*.pt
+*.pth
+*.onnx
+
+# Temporary analysis files
+*.wav.separated/

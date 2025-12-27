@@ -1,0 +1,150 @@
+/* VOCAL_PRIME - Global Styles */
+
+:root {
+  /* Colors */
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-panel: #16161f;
+  --bg-hover: #1a1a25;
+
+  --text-primary: #ffffff;
+  --text-secondary: #9090a0;
+  --text-muted: #606070;
+
+  --accent-primary: #4a9eff;
+  --accent-secondary: #8b5cf6;
+  --accent-success: #22c55e;
+  --accent-warning: #f59e0b;
+  --accent-error: #ef4444;
+
+  --border-color: rgba(100, 100, 120, 0.2);
+  --border-radius: 6px;
+
+  /* Voice analysis specific colors */
+  --pitch-color: #22c55e;
+  --formant-f1: #ef4444;
+  --formant-f2: #f59e0b;
+  --formant-f3: #8b5cf6;
+  --formant-f4: #4a9eff;
+  --quality-good: #22c55e;
+  --quality-warn: #f59e0b;
+  --quality-bad: #ef4444;
+
+  /* Spacing */
+  --gap-sm: 0.25rem;
+  --gap-md: 0.5rem;
+  --gap-lg: 1rem;
+
+  /* Fonts */
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 100, 120, 0.4);
+}
+
+/* Button base */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Input base */
+input, select {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  padding: 0.5rem;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+input:focus, select:focus {
+  border-color: var(--accent-primary);
+}
+
+/* Canvas base */
+canvas {
+  display: block;
+}
+
+/* Utility classes */
+.mono {
+  font-family: var(--font-mono);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-accent {
+  color: var(--accent-primary);
+}
+
+.text-success {
+  color: var(--accent-success);
+}
+
+.text-warning {
+  color: var(--accent-warning);
+}
+
+.text-error {
+  color: var(--accent-error);
+}
