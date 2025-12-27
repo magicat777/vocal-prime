@@ -27,25 +27,35 @@
     const select = event.target as HTMLSelectElement;
     const newMode = select.value as PitchMode;
 
-    if (newMode === 'off') {
+    // Always stop current streaming first before switching modes
+    if (pitchMode !== 'off') {
       await vocalEngine.stopPitchStreaming();
-    } else {
+    }
+
+    if (newMode !== 'off') {
       await vocalEngine.startPitchStreaming(newMode as 'auto' | 'crepe' | 'melodia');
     }
   }
 
-  // Note frequency reference (extended for soprano range)
+  // Note frequency reference (extended for high soprano range)
   const noteFreqs: { [key: string]: number } = {
-    'C2': 65.41, 'A2': 110,
-    'C3': 130.81, 'A3': 220,
-    'C4': 261.63, 'A4': 440,
-    'C5': 523.25, 'A5': 880,
-    'C6': 1046.50, 'A6': 1760,
+    'C2': 65.41,
+    'A2': 110,
+    'C3': 130.81,
+    'A3': 220,
+    'C4': 261.63,  // Middle C
+    'A4': 440,     // Concert pitch
+    'C5': 523.25,
+    'A5': 880,
+    'C6': 1046.50,
+    'E6': 1318.51, // High soprano range
+    'A6': 1760,
+    'C7': 2093.00, // Whistle register
   };
 
-  // Extended range to accommodate soprano vocals (up to ~D7)
+  // Extended range to accommodate high soprano/whistle register
   const minHz = 50;
-  const maxHz = 1800;
+  const maxHz = 2200;
 
   onMount(() => {
     ctx = canvas.getContext('2d');

@@ -157,8 +157,8 @@ class MelodiaDetector:
         sample_rate: int = 48000,
         frame_size: int = 2048,
         hop_size: int = 128,
-        min_freq: float = 80.0,
-        max_freq: float = 1500.0,
+        min_freq: float = 55.0,    # A1 - covers bass vocals
+        max_freq: float = 1800.0,  # Extended for soprano (up to ~A6)
         voice_vibrato: bool = True
     ):
         self.sample_rate = sample_rate
@@ -168,11 +168,10 @@ class MelodiaDetector:
         self.max_freq = max_freq
         self.voice_vibrato = voice_vibrato
 
-        # Buffer for streaming - minimized for high update rate (needed for vibrato detection)
-        # At 48kHz: 2048 samples = 42ms, giving ~24Hz update rate (Nyquist = 12Hz)
-        # This allows detection of vibrato up to ~10Hz
+        # Larger buffer for better continuity (reduces breaks)
+        # At 48kHz: 4096 samples = 85ms, giving ~12Hz update rate
         self.buffer = np.zeros(0, dtype=np.float32)
-        self.min_samples = frame_size  # ~42ms at 48kHz - minimum for Melodia algorithm
+        self.min_samples = frame_size * 2  # ~85ms at 48kHz - larger window = fewer breaks
 
         # Essentia algorithms (lazy loaded)
         self._melodia = None
@@ -189,7 +188,7 @@ class MelodiaDetector:
             # Equal loudness filter (recommended for Melodia)
             self._eqloud = es.EqualLoudness(sampleRate=self.sample_rate)
 
-            # Melodia algorithm - tuned for real-time streaming
+            # Melodia algorithm - tuned for continuous melody tracking with fewer breaks
             self._melodia = es.PredominantPitchMelodia(
                 frameSize=self.frame_size,
                 hopSize=self.hop_size,
@@ -197,12 +196,12 @@ class MelodiaDetector:
                 minFrequency=self.min_freq,
                 maxFrequency=self.max_freq,
                 voiceVibrato=self.voice_vibrato,
-                voicingTolerance=0.4,  # More tolerant for real-time (was 0.2)
-                peakDistributionThreshold=0.8,  # Lower threshold for faster detection
-                peakFrameThreshold=0.8,
-                pitchContinuity=40.0,  # Higher continuity for voice tracking
-                timeContinuity=50,  # Faster time continuity (was 100)
-                minDuration=40  # Shorter minimum duration for responsiveness (was 100ms)
+                voicingTolerance=0.5,  # More tolerant to reduce breaks
+                peakDistributionThreshold=0.7,  # Lower threshold = more pitch detected
+                peakFrameThreshold=0.7,
+                pitchContinuity=50.0,  # Higher = smoother tracking across frames
+                timeContinuity=80,  # Higher = bridge gaps between voiced sections
+                minDuration=20  # Shorter = detect shorter notes (20ms minimum)
             )
 
             self._loaded = True
@@ -302,25 +301,37 @@ class HybridPitchDetector:
         self.mode = mode
         self.sample_rate = sample_rate
 
-        # Initialize detectors
+        # Always initialize BOTH detectors for reliable mode switching
         self._crepe = None
         self._melodia = None
 
-        if mode in ['auto', 'crepe']:
-            try:
-                self._crepe = TorchCREPEDetector(
-                    model='small',  # Balance of speed and accuracy
-                    sample_rate=sample_rate,
-                    device=device
-                )
-            except Exception as e:
-                print(f"Could not initialize torchcrepe: {e}", file=sys.stderr)
+        # Try to initialize CREPE (GPU-accelerated)
+        try:
+            self._crepe = TorchCREPEDetector(
+                model='small',  # Balance of speed and accuracy
+                sample_rate=sample_rate,
+                device=device
+            )
+            print(f"CREPE detector initialized successfully", file=sys.stderr)
+        except Exception as e:
+            print(f"Could not initialize torchcrepe: {e}", file=sys.stderr)
+            self._crepe = None
 
-        if mode in ['auto', 'melodia']:
-            try:
-                self._melodia = MelodiaDetector(sample_rate=sample_rate)
-            except Exception as e:
-                print(f"Could not initialize Melodia: {e}", file=sys.stderr)
+        # Try to initialize Melodia (polyphonic)
+        try:
+            self._melodia = MelodiaDetector(sample_rate=sample_rate)
+            print(f"Melodia detector initialized successfully", file=sys.stderr)
+        except Exception as e:
+            print(f"Could not initialize Melodia: {e}", file=sys.stderr)
+            self._melodia = None
+
+        # Report available modes
+        available = []
+        if self._crepe:
+            available.append('crepe')
+        if self._melodia:
+            available.append('melodia')
+        print(f"Available pitch modes: {available}, current: {mode}", file=sys.stderr)
 
         # Confidence threshold for auto-switching
         self.confidence_threshold = 0.6
