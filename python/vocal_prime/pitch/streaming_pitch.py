@@ -23,11 +23,11 @@ class TorchCREPEDetector:
 
     def __init__(
         self,
-        model: str = 'tiny',  # 'tiny', 'small', 'medium', 'large', 'full'
+        model: str = 'tiny',  # Only 'tiny' and 'full' are supported by torchcrepe
         sample_rate: int = 48000,
         hop_length: int = 480,  # 10ms at 48kHz
         fmin: float = 50.0,
-        fmax: float = 2000.0,
+        fmax: float = 2200.0,  # Extended for high soprano
         device: Optional[str] = None
     ):
         self.sample_rate = sample_rate
@@ -96,8 +96,9 @@ class TorchCREPEDetector:
             return None
 
         # Process the buffer
-        to_process = self.buffer
-        self.buffer = np.zeros(0, dtype=np.float32)
+        to_process = self.buffer.copy()
+        # Keep half for overlap (more frequent output)
+        self.buffer = self.buffer[-(self.min_samples // 2):]
 
         try:
             # Resample to 16kHz (CREPE's native rate)
@@ -125,8 +126,10 @@ class TorchCREPEDetector:
             freq = float(pitch[0, -1].cpu().numpy())
             conf = float(periodicity[0, -1].cpu().numpy())
 
-            # Apply frequency range and voicing threshold
-            voiced = conf > 0.5 and self.fmin <= freq <= self.fmax
+            # For mixed audio, use very low threshold - CREPE's pitch is usually
+            # accurate even at low confidence, it just means there's background noise
+            # The UI can filter by confidence if needed
+            voiced = conf > 0.15 and self.fmin <= freq <= self.fmax
 
             return {
                 'frequency': freq if voiced else 0,
@@ -308,7 +311,7 @@ class HybridPitchDetector:
         # Try to initialize CREPE (GPU-accelerated)
         try:
             self._crepe = TorchCREPEDetector(
-                model='small',  # Balance of speed and accuracy
+                model='tiny',  # Only 'tiny' and 'full' are supported
                 sample_rate=sample_rate,
                 device=device
             )
