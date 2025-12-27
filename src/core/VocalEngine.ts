@@ -115,6 +115,20 @@ export interface WaveformData {
   mono: Float32Array;      // Mono mix for analysis
 }
 
+export interface LevelsData {
+  left: number;            // Left channel RMS in dB
+  right: number;           // Right channel RMS in dB
+  peak: number;            // Peak level in dB
+}
+
+export interface StereoAnalysisData {
+  correlation: number;     // -1 to +1 (phase coherence)
+  stereoWidth: number;     // 0 to 1 (stereo spread)
+  balance: number;         // -1 to +1 (L/R balance)
+  midLevel: number;        // Mid signal level in dB
+  sideLevel: number;       // Side signal level in dB
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -156,6 +170,12 @@ class VocalEngineClass {
 
   // Stereo samples for visualization
   public stereoSamples: Writable<Float32Array>;
+
+  // Level metering stores (for VU meters)
+  public levels: Writable<LevelsData>;
+
+  // Stereo analysis store (for correlation/goniometer)
+  public stereoAnalysis: Writable<StereoAnalysisData>;
 
   // Spectrum gain control
   private spectrumGain: number = 0; // dB
@@ -293,6 +313,20 @@ class VocalEngineClass {
     });
 
     this.stereoSamples = writable(new Float32Array(2048));
+
+    this.levels = writable<LevelsData>({
+      left: -100,
+      right: -100,
+      peak: -100,
+    });
+
+    this.stereoAnalysis = writable<StereoAnalysisData>({
+      correlation: 0,
+      stereoWidth: 0,
+      balance: 0,
+      midLevel: -100,
+      sideLevel: -100,
+    });
 
     // Initialize FFT
     this.fft = new FFT(FFT_SIZE);
@@ -738,15 +772,85 @@ class VocalEngineClass {
       this.samplesSinceLastFFT = 0;
     }
 
-    // Calculate peak and RMS
-    let peak = 0;
-    let sumSquares = 0;
-    for (let i = 0; i < samples.length; i++) {
-      const abs = Math.abs(samples[i]);
-      if (abs > peak) peak = abs;
-      sumSquares += samples[i] * samples[i];
+    // Calculate peak and RMS per channel
+    let peakL = 0, peakR = 0;
+    let sumSqL = 0, sumSqR = 0;
+    let sumL = 0, sumR = 0;
+
+    // Stereo analysis accumulators
+    let sumLR = 0;  // For correlation
+    let sumMid = 0, sumSide = 0;  // For M/S levels
+
+    for (let i = 0; i < numSamples; i++) {
+      const l = samples[i * 2];
+      const r = samples[i * 2 + 1];
+
+      // Peak detection
+      const absL = Math.abs(l);
+      const absR = Math.abs(r);
+      if (absL > peakL) peakL = absL;
+      if (absR > peakR) peakR = absR;
+
+      // RMS accumulators
+      sumSqL += l * l;
+      sumSqR += r * r;
+      sumL += l;
+      sumR += r;
+
+      // Correlation accumulator
+      sumLR += l * r;
+
+      // M/S levels
+      const mid = (l + r) * 0.5;
+      const side = (l - r) * 0.5;
+      sumMid += mid * mid;
+      sumSide += side * side;
     }
-    const rms = Math.sqrt(sumSquares / samples.length);
+
+    // Calculate RMS values
+    const rmsL = Math.sqrt(sumSqL / numSamples);
+    const rmsR = Math.sqrt(sumSqR / numSamples);
+    const peak = Math.max(peakL, peakR);
+    const rms = Math.sqrt((sumSqL + sumSqR) / (numSamples * 2));
+
+    // Convert to dB
+    const leftDb = rmsL > 0 ? 20 * Math.log10(rmsL) : -100;
+    const rightDb = rmsR > 0 ? 20 * Math.log10(rmsR) : -100;
+    const peakDb = peak > 0 ? 20 * Math.log10(peak) : -100;
+
+    // Update levels store
+    this.levels.set({
+      left: leftDb,
+      right: rightDb,
+      peak: peakDb,
+    });
+
+    // Calculate stereo correlation
+    // correlation = (Σ L*R) / sqrt(Σ L² * Σ R²)
+    const denomCorr = Math.sqrt(sumSqL * sumSqR);
+    const correlation = denomCorr > 0 ? sumLR / denomCorr : 0;
+
+    // Calculate stereo width (based on side/mid ratio)
+    const rmsMid = Math.sqrt(sumMid / numSamples);
+    const rmsSide = Math.sqrt(sumSide / numSamples);
+    const stereoWidth = rmsMid > 0 ? Math.min(1, rmsSide / rmsMid) : 0;
+
+    // Calculate balance
+    const totalEnergy = rmsL + rmsR;
+    const balance = totalEnergy > 0 ? (rmsR - rmsL) / totalEnergy : 0;
+
+    // M/S levels in dB
+    const midLevel = rmsMid > 0 ? 20 * Math.log10(rmsMid) : -100;
+    const sideLevel = rmsSide > 0 ? 20 * Math.log10(rmsSide) : -100;
+
+    // Update stereo analysis store
+    this.stereoAnalysis.set({
+      correlation,
+      stereoWidth,
+      balance,
+      midLevel,
+      sideLevel,
+    });
 
     // Update spectrum with levels
     this.spectrum.update(s => ({

@@ -8,6 +8,10 @@
   import PitchPanel from './components/panels/PitchPanel.svelte';
   import FormantPanel from './components/panels/FormantPanel.svelte';
   import VocalMetricsPanel from './components/panels/VocalMetricsPanel.svelte';
+  import MeterPanel from './components/panels/MeterPanel.svelte';
+  import GoniometerPanel from './components/panels/GoniometerPanel.svelte';
+  import StereoCorrelationPanel from './components/panels/StereoCorrelationPanel.svelte';
+  import FrequencyBandsPanel from './components/panels/FrequencyBandsPanel.svelte';
 
   // Application state
   let mode: 'live' | 'file' = 'live';
@@ -151,7 +155,7 @@
         <SpectrumPanel />
       </div>
 
-      <!-- Bottom row: Pitch, Formants, Quality -->
+      <!-- Middle row: Pitch, Formants, Quality -->
       <div class="panel-cell pitch">
         <PitchPanel />
       </div>
@@ -160,6 +164,20 @@
       </div>
       <div class="panel-cell quality">
         <VocalMetricsPanel />
+      </div>
+
+      <!-- Bottom row: VU Meters, Goniometer, Stereo, Frequency Bands -->
+      <div class="panel-cell meters">
+        <MeterPanel />
+      </div>
+      <div class="panel-cell goniometer">
+        <GoniometerPanel />
+      </div>
+      <div class="panel-cell stereo">
+        <StereoCorrelationPanel />
+      </div>
+      <div class="panel-cell freq-bands">
+        <FrequencyBandsPanel />
       </div>
     </div>
   </main>
@@ -345,8 +363,8 @@
 
   .panel-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    grid-template-rows: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    grid-template-rows: 1fr 1fr 1fr;
     gap: 0.75rem;
     height: 100%;
   }
@@ -363,11 +381,11 @@
   }
 
   .panel-cell.spectrum {
-    grid-column: 2 / 4;
+    grid-column: 2 / 5;
     grid-row: 1 / 2;
   }
 
-  /* Bottom row */
+  /* Middle row */
   .panel-cell.pitch {
     grid-column: 1 / 2;
     grid-row: 2 / 3;
@@ -379,8 +397,29 @@
   }
 
   .panel-cell.quality {
-    grid-column: 3 / 4;
+    grid-column: 3 / 5;
     grid-row: 2 / 3;
+  }
+
+  /* Bottom row - 4 panels */
+  .panel-cell.meters {
+    grid-column: 1 / 2;
+    grid-row: 3 / 4;
+  }
+
+  .panel-cell.goniometer {
+    grid-column: 2 / 3;
+    grid-row: 3 / 4;
+  }
+
+  .panel-cell.stereo {
+    grid-column: 3 / 4;
+    grid-row: 3 / 4;
+  }
+
+  .panel-cell.freq-bands {
+    grid-column: 4 / 5;
+    grid-row: 3 / 4;
   }
 
   /* Status Bar */
