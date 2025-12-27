@@ -170,16 +170,19 @@ function startPythonProcess(): void {
     return;
   }
 
-  const pythonPath = process.env.PYTHON_PATH || 'python3';
-  const scriptPath = join(__dirname, '../python/vocal_prime');
+  // Use virtual environment Python
+  const pythonDir = join(__dirname, '../python');
+  const venvPython = join(pythonDir, 'venv', 'bin', 'python');
+  const pythonPath = process.env.PYTHON_PATH || (fs.existsSync(venvPython) ? venvPython : 'python3');
 
-  console.log(`Starting Python analysis server...`);
+  console.log(`Starting Python analysis server with: ${pythonPath}`);
 
   pythonProcess = spawn(pythonPath, ['-m', 'vocal_prime'], {
-    cwd: join(__dirname, '../python'),
+    cwd: pythonDir,
     env: {
       ...process.env,
       PYTHONUNBUFFERED: '1',
+      VIRTUAL_ENV: join(pythonDir, 'venv'),
     },
   });
 
