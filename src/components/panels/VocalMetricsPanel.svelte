@@ -13,12 +13,41 @@
     voicePresent: false,
   };
 
+  // Vibrato hold mechanism - keep values visible for 3 seconds after detection stops
+  const VIBRATO_HOLD_MS = 3000;
+  let heldVibratoRate = 0;
+  let heldVibratoExtent = 0;
+  let vibratoHoldActive = false;
+  let vibratoHoldTimeout: ReturnType<typeof setTimeout> | null = null;
+
   const unsubscribe = vocalEngine.quality.subscribe(data => {
     qualityData = data;
+
+    // Update vibrato hold state
+    if (data.vibrato.detected) {
+      // Vibrato currently detected - update held values and clear any pending timeout
+      heldVibratoRate = data.vibrato.rate;
+      heldVibratoExtent = data.vibrato.extent;
+      vibratoHoldActive = true;
+
+      if (vibratoHoldTimeout) {
+        clearTimeout(vibratoHoldTimeout);
+        vibratoHoldTimeout = null;
+      }
+    } else if (vibratoHoldActive && !vibratoHoldTimeout) {
+      // Vibrato just stopped - start the hold countdown
+      vibratoHoldTimeout = setTimeout(() => {
+        vibratoHoldActive = false;
+        vibratoHoldTimeout = null;
+      }, VIBRATO_HOLD_MS);
+    }
   });
 
   onDestroy(() => {
     unsubscribe();
+    if (vibratoHoldTimeout) {
+      clearTimeout(vibratoHoldTimeout);
+    }
   });
 
   // Format value for display
@@ -95,19 +124,29 @@
     <div class="vibrato-section">
       <div class="vibrato-header">
         <span class="metric-label">VIBRATO</span>
-        <span class="vibrato-indicator" class:detected={qualityData.vibrato.detected}>
-          {qualityData.vibrato.detected ? 'DETECTED' : 'NONE'}
+        <span
+          class="vibrato-indicator"
+          class:detected={qualityData.vibrato.detected}
+          class:held={vibratoHoldActive && !qualityData.vibrato.detected}
+        >
+          {#if qualityData.vibrato.detected}
+            DETECTED
+          {:else if vibratoHoldActive}
+            HOLD
+          {:else}
+            NONE
+          {/if}
         </span>
       </div>
-      {#if qualityData.vibrato.detected}
-        <div class="vibrato-details">
+      {#if vibratoHoldActive}
+        <div class="vibrato-details" class:fading={!qualityData.vibrato.detected}>
           <div class="vibrato-stat">
             <span class="stat-label">Rate</span>
-            <span class="stat-value">{qualityData.vibrato.rate.toFixed(1)} Hz</span>
+            <span class="stat-value">{heldVibratoRate.toFixed(1)} Hz</span>
           </div>
           <div class="vibrato-stat">
             <span class="stat-label">Extent</span>
-            <span class="stat-value">{qualityData.vibrato.extent.toFixed(2)} st</span>
+            <span class="stat-value">{heldVibratoExtent.toFixed(2)} st</span>
           </div>
         </div>
       {/if}
@@ -237,10 +276,21 @@
     color: #f97316;
   }
 
+  .vibrato-indicator.held {
+    background: rgba(249, 115, 22, 0.1);
+    color: #fb923c;
+    opacity: 0.7;
+  }
+
   .vibrato-details {
     display: flex;
     gap: 1rem;
     padding-left: 70px;
+    transition: opacity 0.3s ease;
+  }
+
+  .vibrato-details.fading {
+    opacity: 0.6;
   }
 
   .vibrato-stat {

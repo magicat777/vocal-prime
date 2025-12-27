@@ -34,14 +34,18 @@
     }
   }
 
-  // Note frequency reference
+  // Note frequency reference (extended for soprano range)
   const noteFreqs: { [key: string]: number } = {
-    'C2': 65.41, 'C3': 130.81, 'C4': 261.63, 'C5': 523.25, 'C6': 1046.50,
-    'A2': 110, 'A3': 220, 'A4': 440, 'A5': 880
+    'C2': 65.41, 'A2': 110,
+    'C3': 130.81, 'A3': 220,
+    'C4': 261.63, 'A4': 440,
+    'C5': 523.25, 'A5': 880,
+    'C6': 1046.50, 'A6': 1760,
   };
 
+  // Extended range to accommodate soprano vocals (up to ~D7)
   const minHz = 50;
-  const maxHz = 1000;
+  const maxHz = 1800;
 
   onMount(() => {
     ctx = canvas.getContext('2d');
@@ -170,17 +174,32 @@
       ctx.fillText(freqToNote(pitchData.frequency), width - marginRight + 8, currentY + 18);
     }
 
-    // Draw confidence bar
-    const barWidth = 6;
-    const barX = width - 20;
-    const barHeight = height - 20;
+    // Draw confidence bar with label
+    const barWidth = 8;
+    const barX = width - 22;
+    const barHeight = height - 40;
+    const barY = 25;
 
+    // Background
     ctx.fillStyle = '#1a1a25';
-    ctx.fillRect(barX, 10, barWidth, barHeight);
+    ctx.fillRect(barX, barY, barWidth, barHeight);
 
-    const confHeight = barHeight * pitchData.confidence;
-    ctx.fillStyle = pitchData.confidence > 0.5 ? '#22c55e' : '#eab308';
-    ctx.fillRect(barX, 10 + barHeight - confHeight, barWidth, confHeight);
+    // Confidence fill - scale for visibility (Melodia often returns low values for mixed audio)
+    // Boost display: 0.3 confidence shows as 60% bar height for better visibility
+    const displayConfidence = Math.min(1, pitchData.confidence * 2);
+    const confHeight = barHeight * displayConfidence;
+
+    // Color based on actual confidence (not boosted)
+    ctx.fillStyle = pitchData.confidence > 0.4 ? '#22c55e' :
+                    pitchData.confidence > 0.2 ? '#eab308' : '#ef4444';
+    ctx.fillRect(barX, barY + barHeight - confHeight, barWidth, confHeight);
+
+    // Label
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#666';
+    ctx.fillText('CONF', barX + barWidth / 2, barY - 6);
+    ctx.fillText(`${Math.round(pitchData.confidence * 100)}%`, barX + barWidth / 2, barY + barHeight + 12);
 
     // Voice indicator
     const voiceIndicatorY = height - 30;
