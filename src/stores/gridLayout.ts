@@ -19,8 +19,8 @@ export const GRID_CONFIG = {
 
 // Reference dimensions for proportional scaling
 export const REFERENCE_DIMENSIONS = {
-  width: 1600,   // Reference container width
-  height: 900,   // Reference container height
+  width: 1133,   // Reference container width
+  height: 1236,  // Reference container height
 } as const;
 
 // Scale state for proportional panel scaling
@@ -43,22 +43,22 @@ export interface PanelLayout {
 }
 
 // Default layouts for each panel (position in grid cells)
-// Grid is roughly 80 columns x 45 rows at 1600x900 with 20px cells
+// Grid at 1133x1236 with 20px cells = ~55 columns x 61 rows
 const defaultLayouts: Record<string, Omit<PanelLayout, 'id'>> = {
-  // Top row - Waveform and Spectrum
-  waveform: { x: 0, y: 0, width: 20, height: 14, zIndex: 1, locked: false },
-  spectrum: { x: 20, y: 0, width: 58, height: 14, zIndex: 1, locked: false },
+  // Top row - Waveform and Spectrum (y: 0-20)
+  waveform: { x: 0, y: 0, width: 18, height: 20, zIndex: 1, locked: false },
+  spectrum: { x: 18, y: 0, width: 37, height: 20, zIndex: 1, locked: false },
 
-  // Middle row - Pitch, Formants, Quality
-  pitch: { x: 0, y: 14, width: 20, height: 14, zIndex: 1, locked: false },
-  formants: { x: 20, y: 14, width: 20, height: 14, zIndex: 1, locked: false },
-  quality: { x: 40, y: 14, width: 38, height: 14, zIndex: 1, locked: false },
+  // Middle row - Pitch, Formants, Quality, Meters (y: 20-40)
+  pitch: { x: 0, y: 20, width: 18, height: 20, zIndex: 1, locked: false },
+  formants: { x: 18, y: 20, width: 18, height: 20, zIndex: 1, locked: false },
+  quality: { x: 36, y: 20, width: 19, height: 11, zIndex: 1, locked: false },
+  meters: { x: 36, y: 31, width: 19, height: 9, zIndex: 1, locked: false },
 
-  // Bottom row - Meters, Goniometer, Stereo, FreqBands
-  meters: { x: 0, y: 28, width: 20, height: 14, zIndex: 1, locked: false },
-  goniometer: { x: 20, y: 28, width: 20, height: 14, zIndex: 1, locked: false },
-  stereo: { x: 40, y: 28, width: 20, height: 14, zIndex: 1, locked: false },
-  freqBands: { x: 60, y: 28, width: 18, height: 14, zIndex: 1, locked: false },
+  // Bottom row - Goniometer, FreqBands, Stereo (y: 40-61)
+  goniometer: { x: 0, y: 40, width: 18, height: 21, zIndex: 1, locked: false },
+  freqBands: { x: 18, y: 40, width: 18, height: 21, zIndex: 1, locked: false },
+  stereo: { x: 36, y: 40, width: 19, height: 21, zIndex: 1, locked: false },
 };
 
 export type PanelId = keyof typeof defaultLayouts;
