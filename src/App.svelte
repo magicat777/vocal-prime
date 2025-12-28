@@ -1,6 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { vocalEngine } from './core/VocalEngine';
+  import { gridLayout } from './stores/gridLayout';
+
+  // Layout components
+  import GridLayout from './components/layout/GridLayout.svelte';
+  import DraggablePanel from './components/layout/DraggablePanel.svelte';
 
   // Panel components
   import WaveformPanel from './components/panels/WaveformPanel.svelte';
@@ -12,6 +17,9 @@
   import GoniometerPanel from './components/panels/GoniometerPanel.svelte';
   import StereoCorrelationPanel from './components/panels/StereoCorrelationPanel.svelte';
   import FrequencyBandsPanel from './components/panels/FrequencyBandsPanel.svelte';
+
+  // Layout state - derive from store for reactivity
+  $: allLocked = Object.values($gridLayout.panels).every(p => p.locked);
 
   // Application state
   let mode: 'live' | 'file' = 'live';
@@ -88,6 +96,27 @@
       await window.electronAPI.stream.stop();
     }
   }
+
+  // Layout controls
+  function toggleLockAll() {
+    if (gridLayout.areAllLocked()) {
+      gridLayout.unlockAll();
+    } else {
+      gridLayout.lockAll();
+    }
+  }
+
+  function toggleGrid() {
+    gridLayout.toggleGrid();
+  }
+
+  function toggleSnap() {
+    gridLayout.toggleSnap();
+  }
+
+  function resetLayout() {
+    gridLayout.reset();
+  }
 </script>
 
 <div class="app">
@@ -126,6 +155,43 @@
     </div>
 
     <div class="header-right">
+      <!-- Layout controls -->
+      <div class="layout-controls">
+        <button
+          class="layout-btn"
+          class:active={$gridLayout.gridVisible}
+          on:click={toggleGrid}
+          title="Toggle grid overlay (Shift+G)"
+        >
+          GRID
+        </button>
+        <button
+          class="layout-btn"
+          class:active={$gridLayout.snapEnabled}
+          on:click={toggleSnap}
+          title="Toggle snap to grid (Ctrl+Shift+S)"
+        >
+          SNAP
+        </button>
+        <button
+          class="layout-btn"
+          class:active={allLocked}
+          on:click={toggleLockAll}
+          title="Lock/unlock all panels (Ctrl+Shift+L)"
+        >
+          {allLocked ? 'UNLOCK' : 'LOCK'}
+        </button>
+        <button
+          class="layout-btn"
+          on:click={resetLayout}
+          title="Reset to default layout (Ctrl+Shift+R)"
+        >
+          RESET
+        </button>
+      </div>
+
+      <div class="divider"></div>
+
       <button
         class="toggle-btn"
         class:active={useSeparatedVocals}
@@ -146,40 +212,43 @@
 
   <!-- Main Content -->
   <main class="main">
-    <div class="panel-grid">
-      <!-- Top row: Waveform and Spectrum -->
-      <div class="panel-cell waveform">
+    <GridLayout>
+      <DraggablePanel panelId="waveform" title="Waveform">
         <WaveformPanel />
-      </div>
-      <div class="panel-cell spectrum">
+      </DraggablePanel>
+
+      <DraggablePanel panelId="spectrum" title="Spectrum">
         <SpectrumPanel />
-      </div>
+      </DraggablePanel>
 
-      <!-- Middle row: Pitch, Formants, Quality -->
-      <div class="panel-cell pitch">
+      <DraggablePanel panelId="pitch" title="Pitch">
         <PitchPanel />
-      </div>
-      <div class="panel-cell formants">
-        <FormantPanel />
-      </div>
-      <div class="panel-cell quality">
-        <VocalMetricsPanel />
-      </div>
+      </DraggablePanel>
 
-      <!-- Bottom row: VU Meters, Goniometer, Stereo, Frequency Bands -->
-      <div class="panel-cell meters">
+      <DraggablePanel panelId="formants" title="Formants">
+        <FormantPanel />
+      </DraggablePanel>
+
+      <DraggablePanel panelId="quality" title="Vocal Metrics">
+        <VocalMetricsPanel />
+      </DraggablePanel>
+
+      <DraggablePanel panelId="meters" title="VU Meters">
         <MeterPanel />
-      </div>
-      <div class="panel-cell goniometer">
+      </DraggablePanel>
+
+      <DraggablePanel panelId="goniometer" title="Goniometer">
         <GoniometerPanel />
-      </div>
-      <div class="panel-cell stereo">
+      </DraggablePanel>
+
+      <DraggablePanel panelId="stereo" title="Stereo">
         <StereoCorrelationPanel />
-      </div>
-      <div class="panel-cell freq-bands">
+      </DraggablePanel>
+
+      <DraggablePanel panelId="freqBands" title="Frequency Bands">
         <FrequencyBandsPanel />
-      </div>
-    </div>
+      </DraggablePanel>
+    </GridLayout>
   </main>
 
   <!-- Status Bar -->
@@ -356,70 +425,47 @@
   /* Main */
   .main {
     flex: 1;
-    padding: 0.75rem;
     min-height: 0;
     overflow: hidden;
   }
 
-  .panel-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr 1fr;
-    grid-template-rows: 1fr 1fr 1fr;
-    gap: 0.75rem;
-    height: 100%;
+  /* Layout Controls */
+  .layout-controls {
+    display: flex;
+    gap: 0.25rem;
   }
 
-  .panel-cell {
-    min-height: 0;
-    min-width: 0;
+  .layout-btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.65rem;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    border-radius: 3px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
   }
 
-  /* Top row spans */
-  .panel-cell.waveform {
-    grid-column: 1 / 2;
-    grid-row: 1 / 2;
+  .layout-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
   }
 
-  .panel-cell.spectrum {
-    grid-column: 2 / 5;
-    grid-row: 1 / 2;
+  .layout-btn.active {
+    background: rgba(74, 158, 255, 0.15);
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
   }
 
-  /* Middle row */
-  .panel-cell.pitch {
-    grid-column: 1 / 2;
-    grid-row: 2 / 3;
-  }
-
-  .panel-cell.formants {
-    grid-column: 2 / 3;
-    grid-row: 2 / 3;
-  }
-
-  .panel-cell.quality {
-    grid-column: 3 / 5;
-    grid-row: 2 / 3;
-  }
-
-  /* Bottom row - 4 panels */
-  .panel-cell.meters {
-    grid-column: 1 / 2;
-    grid-row: 3 / 4;
-  }
-
-  .panel-cell.goniometer {
-    grid-column: 2 / 3;
-    grid-row: 3 / 4;
-  }
-
-  .panel-cell.stereo {
-    grid-column: 3 / 4;
-    grid-row: 3 / 4;
-  }
-
-  .panel-cell.freq-bands {
-    grid-column: 4 / 5;
-    grid-row: 3 / 4;
+  .divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border-color);
+    margin: 0 0.5rem;
   }
 
   /* Status Bar */

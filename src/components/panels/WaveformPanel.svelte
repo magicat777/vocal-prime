@@ -3,10 +3,12 @@
   import { vocalEngine } from '../../core/VocalEngine';
 
   let canvas: HTMLCanvasElement;
+  let canvasContainer: HTMLDivElement;
   let ctx: CanvasRenderingContext2D | null = null;
   let animationId: number;
   let width = 0;
   let height = 0;
+  let resizeObserver: ResizeObserver | null = null;
 
   // Subscribe to waveform data
   let waveformData = { left: new Float32Array(2048), right: new Float32Array(2048), mono: new Float32Array(2048) };
@@ -17,26 +19,36 @@
   onMount(() => {
     ctx = canvas.getContext('2d');
     resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
+
+    // Use ResizeObserver for container resize detection
+    resizeObserver = new ResizeObserver(() => {
+      resizeCanvas();
+    });
+    resizeObserver.observe(canvasContainer);
+
     animate();
   });
 
   onDestroy(() => {
-    window.removeEventListener('resize', resizeCanvas);
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+    }
     cancelAnimationFrame(animationId);
     unsubscribe();
   });
 
   function resizeCanvas() {
-    const rect = canvas.parentElement?.getBoundingClientRect();
-    if (rect) {
+    const rect = canvasContainer?.getBoundingClientRect();
+    if (rect && rect.width > 0 && rect.height > 0) {
       width = rect.width;
       height = rect.height;
       canvas.width = width * window.devicePixelRatio;
       canvas.height = height * window.devicePixelRatio;
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
-      ctx?.scale(window.devicePixelRatio, window.devicePixelRatio);
+      if (ctx) {
+        ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+      }
     }
   }
 
@@ -152,7 +164,7 @@
     <span class="panel-title">WAVEFORM</span>
     <span class="panel-subtitle">Stereo L/R</span>
   </div>
-  <div class="canvas-container">
+  <div class="canvas-container" bind:this={canvasContainer}>
     <canvas bind:this={canvas}></canvas>
   </div>
 </div>
