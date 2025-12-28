@@ -129,18 +129,21 @@
 
     // Draw spectrum bars with gradient
     const barWidth = drawWidth / bars.length;
+    // Only add gap between bars if bars are wide enough
+    const barGap = barWidth > 2 ? 1 : 0;
     const gradient = ctx.createLinearGradient(0, drawHeight, 0, 0);
     gradient.addColorStop(0, '#22c55e');
     gradient.addColorStop(0.5, '#eab308');
     gradient.addColorStop(0.8, '#f97316');
     gradient.addColorStop(1, '#ef4444');
 
+    ctx.fillStyle = gradient;
     for (let i = 0; i < bars.length; i++) {
       const barHeight = bars[i] * drawHeight;
-      const x = marginLeft + i * barWidth;
-
-      ctx.fillStyle = gradient;
-      ctx.fillRect(x, drawHeight - barHeight, barWidth - 1, barHeight);
+      if (barHeight > 0.5) {  // Only draw visible bars
+        const x = marginLeft + i * barWidth;
+        ctx.fillRect(x, drawHeight - barHeight, Math.max(1, barWidth - barGap), barHeight);
+      }
     }
 
     // Draw frequency labels
